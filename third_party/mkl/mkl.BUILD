@@ -14,6 +14,7 @@ cc_library(
     name = "mkl_headers",
     srcs = glob(["include/*"]),
     includes = ["include"],
+    hdrs = ["include"],
     visibility = ["//visibility:public"],
 )
 
