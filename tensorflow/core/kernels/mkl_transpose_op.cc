@@ -19,8 +19,6 @@ limitations under the License.
 #define EIGEN_USE_THREADS
 
 #include "tensorflow/core/framework/numeric_types.h"
-#define MKL_Complex8 tensorflow::complex64
-#define MKL_Complex16 tensorflow::complex128
 #include "mkl_trans.h"
 #include "tensorflow/core/kernels/transpose_functor.h"
 #include "tensorflow/core/kernels/transpose_op.h"
@@ -51,19 +49,21 @@ Status MKLTranspose2D(const char trans, const Tensor& in, Tensor* out);
 //              alpha (for scaling), array, dist_bet_adjacent_cols/rows
 //              (source), array, dist_bet_adjacent_cols/rows (dest))
 
-#define INSTANTIATE(T, PREFIX)                                                \
+#define INSTANTIATE(T, U, PREFIX, ONE)                                        \
   template <>                                                                 \
   Status MKLTranspose2D<T>(const char trans, const Tensor& in, Tensor* out) { \
-    mkl_##PREFIX##omatcopy('R', trans, in.dim_size(0), in.dim_size(1), 1,     \
-                           in.flat<T>().data(), in.dim_size(1),               \
-                           out->flat<T>().data(), in.dim_size(0));            \
+    mkl_##PREFIX##omatcopy('R', trans, in.dim_size(0), in.dim_size(1), ONE,   \
+                           reinterpret_cast<const U*>(in.flat<T>().data()),   \
+                           in.dim_size(1),                                    \
+                           reinterpret_cast<U*>(out->flat<T>().data()),       \
+                           in.dim_size(0));                                   \
     return Status::OK();                                                      \
   }
 
-INSTANTIATE(float, s)
-INSTANTIATE(double, d)
-INSTANTIATE(complex64, c)
-INSTANTIATE(complex128, z)
+INSTANTIATE(float, float, s, 1)
+INSTANTIATE(double, double, d, 1)
+INSTANTIATE(complex64, MKL_Complex8, c, (MKL_Complex8{1, 0}))
+INSTANTIATE(complex128, MKL_Complex16, z, (MKL_Complex16{1, 0}))
 #undef INSTANTIATE
 
 static const char kMKLTranspose = 'T';
