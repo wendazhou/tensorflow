@@ -177,9 +177,9 @@ class MklMatMulOp : public OpKernel {
     const MKL_Complex8 beta = {0.0f, 0.0f};
     cblas_cgemm(CblasRowMajor, transa ? CblasTrans : CblasNoTrans,
                 transb ? CblasTrans : CblasNoTrans, m, n, k,
-                static_cast<const void*>(&alpha), static_cast<const void*>(a),
-                lda, static_cast<const void*>(b), ldb,
-                static_cast<const void*>(&beta), static_cast<void*>(c), ldc);
+                &alpha, reinterpret_cast<const MKL_Complex8*>(a),
+                lda, reinterpret_cast<const MKL_Complex8*>(b), ldb,
+                &beta, reinterpret_cast<MKL_Complex8*>(c), ldc);
   }
 
   // Matrix-Matrix Multiplication with Complex128 (std::complex<double>)
@@ -193,9 +193,9 @@ class MklMatMulOp : public OpKernel {
     const MKL_Complex16 beta = {0.0, 0.0};
     cblas_zgemm(CblasRowMajor, transa ? CblasTrans : CblasNoTrans,
                 transb ? CblasTrans : CblasNoTrans, m, n, k,
-                static_cast<const void*>(&alpha), static_cast<const void*>(a),
-                lda, static_cast<const void*>(b), ldb,
-                static_cast<const void*>(&beta), static_cast<void*>(c), ldc);
+                &alpha, reinterpret_cast<const MKL_Complex16*>(a),
+                lda, reinterpret_cast<const MKL_Complex16*>(b), ldb,
+                &beta, reinterpret_cast<MKL_Complex16*>(c), ldc);
   }
 };
 
