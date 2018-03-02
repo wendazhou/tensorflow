@@ -1856,7 +1856,7 @@ tf_cuda_library(
     ) + if_mkl(
         [
             "//third_party/mkl:intel_binary_blob",
-            "@mkl_dnn//:mkl_dnn",
+            "@mkl_dnn",
         ],
     ),
     alwayslink = 1,
@@ -2073,6 +2073,7 @@ tf_cuda_library(
         "common_runtime/graph_runner.cc",
         "common_runtime/local_device.cc",
         "common_runtime/memory_types.cc",
+        "common_runtime/mkl_cpu_allocator.cc",
         "common_runtime/optimization_registry.cc",
         "common_runtime/parallel_concat_optimizer.cc",
         "common_runtime/placer.cc",
@@ -2112,6 +2113,7 @@ tf_cuda_library(
     ] + if_mkl(
         [
             "//third_party/mkl:intel_binary_blob",
+            "@mkl_dnn",
         ],
     ),
     alwayslink = 1,
@@ -2156,7 +2158,7 @@ tf_cuda_library(
     ] + if_mkl(
         [
             "//third_party/mkl:intel_binary_blob",
-            "@mkl_dnn//:mkl_dnn",
+            "@mkl_dnn",
         ],
     ) + tf_additional_core_deps() + if_static([":core_cpu_impl"]),
     alwayslink = 1,
