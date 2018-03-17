@@ -218,7 +218,14 @@ class FilterDatasetOp : public UnaryDatasetOpKernel {
 
   class FilterFunctionDataset : public FilterDatasetBase {
    public:
-    using FilterDatasetBase::FilterDatasetBase;
+    // We forward manually instead of using the using method directly
+    // as there seems to be bug in GCC which attempts to instantiate
+    // a move constructor.
+    FilterFunctionDataset(OpKernelContext* ctx, const DatasetBase* input,
+                      const NameAttrList& func,
+                      std::unique_ptr<CapturedFunction> captured_func)
+        : FilterDatasetBase(ctx, input, func, std::move(captured_func)) {
+    }
 
    protected:
     Status EvaluatePredicate(IteratorContext* ctx,
