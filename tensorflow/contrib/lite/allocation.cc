@@ -93,7 +93,7 @@ FileCopyAllocation::FileCopyAllocation(const char* filename,
                             filename);
     return;
   }
-  copied_buffer_ = std::move(buffer);
+  copied_buffer_.reset(const_cast<const char*>(buffer.release()));
 }
 
 FileCopyAllocation::~FileCopyAllocation() {}
