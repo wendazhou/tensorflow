@@ -37,7 +37,7 @@ cc_library(
     deps = [
         "@eigen_archive//:eigen",
         "@local_config_sycl//sycl",
-        "@mkl//:mkl_headers",
+        "@mkl_linux//:mkl_headers",
     ],
 )
 

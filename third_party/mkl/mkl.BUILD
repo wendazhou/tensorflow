@@ -12,7 +12,7 @@ filegroup(
 
 cc_library(
     name = "mkl_headers",
-    srcs = glob(["include/*"]),
+    srcs = glob(["include/mkl*.h"]),
     includes = ["include"],
     visibility = ["//visibility:public"],
 )
@@ -21,7 +21,7 @@ cc_library(
     name = "mkl_libs_linux",
     srcs = [
         "lib/libiomp5.so",
-        "lib/libmklml_intel.so",
+        "lib/libmkl_rt.so",
     ],
     visibility = ["//visibility:public"],
 )
