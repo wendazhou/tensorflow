@@ -48,6 +48,7 @@ tf_kernel_library(
         "l2loss_op.cc",
         "listdiff_op.cc",
         "lrn_ops.cc",
+        "lstm_ops.cc",
         "matmul_op.cc",
         "matrix_band_part_op.cc",
         "matrix_set_diag_op.cc",
