@@ -36,6 +36,143 @@ xla::XlaOp TanhGrad(xla::XlaBuilder* builder, DataType dtype, const xla::XlaOp& 
   return builder->Sub(one, builder->Mul(x, x));
 }
 
+struct LSTMBlockForwardInput {
+  xla::XlaOp x;
+  xla::XlaOp cs_prev;
+  xla::XlaOp h_prev;
+  xla::XlaOp w;
+  xla::XlaOp wci;
+  xla::XlaOp wcf;
+  xla::XlaOp wco;
+  xla::XlaOp b;
+};
+
+struct LSTMBlockForwardOutput {
+  xla::XlaOp i;
+  xla::XlaOp cs;
+  xla::XlaOp f;
+  xla::XlaOp o;
+  xla::XlaOp ci;
+  xla::XlaOp co;
+  xla::XlaOp h;
+};
+
+LSTMBlockForwardOutput LSTMBlockCellForward(
+    xla::XlaBuilder* builder, DataType dtype, const LSTMBlockForwardInput& input,
+    int64 cell_size, float forget_bias, float cell_clip, bool use_peephole) {
+  // Concat xh = [x, h]
+  xla::XlaOp xh = builder->ConcatInDim({input.x, input.h_prev}, 1);
+
+  // states1 = xh * w + b
+  xla::XlaOp icfo = builder->Add(builder->Dot(xh, input.w), input.b, {1});
+
+  // input gate
+  xla::XlaOp i = Sigmoid(builder, dtype, builder->SliceInDim(icfo, 0, cell_size, 1, 1));
+
+  // cell input
+  xla::XlaOp ci = builder->Tanh(builder->SliceInDim(icfo, cell_size, 2 * cell_size, 1, 1));
+
+  // forget gate
+  xla::XlaOp f = Sigmoid(
+      builder, dtype,
+      builder->Add(
+        builder->SliceInDim(icfo, 2 * cell_size, 3 * cell_size, 1, 1),
+        XlaHelpers::FloatLiteral(builder, dtype, forget_bias)));
+
+  // cs = ci .* i + f .* cs_prev
+  xla::XlaOp cs = builder->Add(
+      builder->Mul(ci, i),
+      builder->Mul(f, input.cs_prev));
+
+  if (cell_clip > 0.0) {
+    cs = builder->Clamp(
+      cs,
+      XlaHelpers::FloatLiteral(builder, dtype, -cell_clip),
+      XlaHelpers::FloatLiteral(builder, dtype, cell_clip));
+  }
+
+  xla::XlaOp co = builder->Tanh(cs);
+
+  // output gate
+  xla::XlaOp o = Sigmoid(builder, dtype, builder->SliceInDim(icfo, 3 * cell_size, 4 * cell_size, 1, 1));
+
+  xla::XlaOp h = builder->Mul(o, co);
+
+  return LSTMBlockForwardOutput{ i, cs, f, o, ci, co, h };
+}
+
+struct LSTMBlockBackwardInput {
+  xla::XlaOp x;
+  xla::XlaOp cs_prev;
+  xla::XlaOp h_prev;
+  xla::XlaOp w;
+  xla::XlaOp wci;
+  xla::XlaOp wcf;
+  xla::XlaOp wco;
+  xla::XlaOp b;
+  xla::XlaOp i;
+  xla::XlaOp cs;
+  xla::XlaOp f;
+  xla::XlaOp o;
+  xla::XlaOp ci;
+  xla::XlaOp co;
+  xla::XlaOp h_grad;
+  xla::XlaOp cs_grad;
+};
+
+struct LSTMBlockBackwardOutput {
+  xla::XlaOp cs_prev_grad;
+  xla::XlaOp dicfo;
+  xla::XlaOp wci_grad;
+  xla::XlaOp wcf_grad;
+  xla::XlaOp wco_grad;
+};
+
+
+LSTMBlockBackwardOutput LSTMBlockCellBackward(
+    xla::XlaBuilder* builder, DataType dtype,
+    const LSTMBlockBackwardInput& input, int64 cell_size, bool use_peephole) {
+
+  xla::XlaOp one = XlaHelpers::One(builder, dtype);
+
+  // do = sigm'(o) * dh * co
+  xla::XlaOp do_ = builder->Mul(
+      SigmoidGrad(builder, dtype, input.o),
+      builder->Mul(input.h_grad, input.co));
+
+  // dcs = tanh'(cs) * dh * o + (dcs[t + 1])
+  xla::XlaOp dcs = builder->Add(
+      builder->Mul(
+        TanhGrad(builder, dtype, input.o),
+        builder->Mul(input.h_grad, input.o)),
+      input.cs_grad);
+
+  // dci = tanh'(ci) * dcs * i
+  xla::XlaOp dci = builder->Mul(
+      TanhGrad(builder, dtype, input.ci),
+      builder->Mul(dcs, input.i));
+
+  // df[t] = sigm'(f[t]) * dcs[t] * cs[t - 1]
+  xla::XlaOp df = builder->Mul(
+      SigmoidGrad(builder, dtype, input.f),
+      builder->Mul(dcs, input.cs_prev));
+
+  // di[t] = sigm'(i[t]) dcs[t] ci[t]     
+  xla::XlaOp di = builder->Mul(
+      SigmoidGrad(builder, dtype, input.i),
+      builder->Mul(dcs, input.ci));
+
+  xla::XlaOp dicfo = builder->ConcatInDim({di, dci, df, do_}, 1);
+  xla::XlaOp cs_prev_grad = builder->Mul(dcs, input.f);
+
+  xla::XlaOp zero = XlaHelpers::Zero(builder, dtype);
+  xla::XlaOp wci_grad = builder->Broadcast(zero, {cell_size});
+  xla::XlaOp wcf_grad = builder->Broadcast(zero, {cell_size});
+  xla::XlaOp wco_grad = builder->Broadcast(zero, {cell_size});
+
+  return LSTMBlockBackwardOutput{ cs_prev_grad, dicfo, wci_grad, wcf_grad, wco_grad };
+}
+
 class LSTMBlockCellOp : public XlaOpKernel {
   public:
     explicit LSTMBlockCellOp(OpKernelConstruction* ctx) : XlaOpKernel(ctx) {
@@ -103,57 +240,18 @@ class LSTMBlockCellOp : public XlaOpKernel {
       // build the operation now
       auto dtype = input_type(0);
 
-      // Concat xh = [x, h]
-      auto xh = ctx->builder()->ConcatInDim({x, h_prev}, 1);
-      
-      // states1 = xh * w + b
-      auto icfo = ctx->builder()->Add(
-          ctx->builder()->Dot(xh, w), b, {1});
-      
-      // input gate
-      auto i = Sigmoid(
+      auto output = LSTMBlockCellForward(
           ctx->builder(), dtype,
-          ctx->builder()->Slice(icfo, {0, 0}, {batch_size, cell_size}, {1, 1}));
-        
-      // cell input
-      auto ci = ctx->builder()->Tanh(
-          ctx->builder()->Slice(icfo, {0, cell_size}, {batch_size, 2 * cell_size}, {1, 1}));
-    
-      // forget gate
-      auto f = Sigmoid(
-          ctx->builder(), dtype,
-          ctx->builder()->Add(
-            ctx->builder()->Slice(icfo, {0, 2 * cell_size}, {batch_size, 3 * cell_size}, {1, 1}),
-            XlaHelpers::FloatLiteral(ctx->builder(), dtype, forget_bias_)));
+          {x, cs_prev, h_prev, w, wci, wcf, wco, b},
+          cell_size, forget_bias_, cell_clip_, use_peephole_);
 
-      // cs = ci .* i + f .* cs_prev
-      auto cs = ctx->builder()->Add(
-          ctx->builder()->Mul(ci, i),
-          ctx->builder()->Mul(f, cs_prev));
-      
-      if (cell_clip_ > 0.0) {
-        cs = ctx->builder()->Clamp(
-            cs,
-            XlaHelpers::FloatLiteral(ctx->builder(), dtype, -cell_clip_),
-            XlaHelpers::FloatLiteral(ctx->builder(), dtype, cell_clip_));
-      }
-      
-      auto co = ctx->builder()->Tanh(cs);
-
-      // output gate
-      auto o = Sigmoid(
-          ctx->builder(), dtype,
-          ctx->builder()->Slice(icfo, {0, 3 * cell_size}, {batch_size, 4 * cell_size}, {1, 1}));
-      
-      auto h = ctx->builder()->Mul(o, co);
-
-      ctx->SetOutput(0, i);
-      ctx->SetOutput(1, cs);
-      ctx->SetOutput(2, f);
-      ctx->SetOutput(3, o);
-      ctx->SetOutput(4, ci);
-      ctx->SetOutput(5, co);
-      ctx->SetOutput(6, h);
+      ctx->SetOutput(0, output.i);
+      ctx->SetOutput(1, output.cs);
+      ctx->SetOutput(2, output.f);
+      ctx->SetOutput(3, output.o);
+      ctx->SetOutput(4, output.ci);
+      ctx->SetOutput(5, output.co);
+      ctx->SetOutput(6, output.h);
     }
   private:
     float forget_bias_;
@@ -244,50 +342,17 @@ class LSTMBlockCellGradOp : public XlaOpKernel {
 
       // Start computation
       auto dtype = input_type(0);
-      auto builder = ctx->builder();
 
-      auto one = XlaHelpers::One(builder, dtype);
+      auto output = LSTMBlockCellBackward(
+          ctx->builder(), dtype,
+          {x, cs_prev, h_prev, w, wci, wcf, wco, b, i, cs, f, o, ci, co, cs_grad, h_grad},
+          cell_size, use_peephole_);
 
-      // do = sigm'(o) * dh * co
-      xla::XlaOp do_ = builder->Mul(
-          SigmoidGrad(builder, dtype, o),
-          builder->Mul(h_grad, co));
-      
-      // dcs = tanh'(cs) * dh * o + (dcs[t + 1])
-      auto dcs = builder->Add(
-          builder->Mul(
-            TanhGrad(builder, dtype, o),
-            builder->Mul(h_grad, o)),
-          cs_grad);
-      
-      // dci = tanh'(ci) * dcs * i
-      xla::XlaOp dci = builder->Mul(
-          TanhGrad(builder, dtype, ci),
-          builder->Mul(dcs, i));
-    
-      // df[t] = sigm'(f[t]) * dcs[t] * cs[t - 1]
-      xla::XlaOp df = builder->Mul(
-          SigmoidGrad(builder, dtype, f),
-          builder->Mul(dcs, cs_prev));
-
-      // di[t] = sigm'(i[t]) dcs[t] ci[t]     
-      xla::XlaOp di = builder->Mul(
-          SigmoidGrad(builder, dtype, i),
-          builder->Mul(dcs, ci));
-      
-      auto dicfo = builder->ConcatInDim({di, dci, df, do_}, 1);
-      auto cs_prev_grad = builder->Mul(dcs, f);
-
-      auto zero = XlaHelpers::Zero(builder, dtype);
-      auto wci_grad = builder->Broadcast(zero, {cell_size});
-      auto wcf_grad = builder->Broadcast(zero, {cell_size});
-      auto wco_grad = builder->Broadcast(zero, {cell_size});
-
-      ctx->SetOutput(0, cs_prev_grad);
-      ctx->SetOutput(1, dicfo);
-      ctx->SetOutput(2, wci_grad);
-      ctx->SetOutput(3, wcf_grad);
-      ctx->SetOutput(4, wco_grad);
+      ctx->SetOutput(0, output.cs_prev_grad);
+      ctx->SetOutput(1, output.dicfo);
+      ctx->SetOutput(2, output.wci_grad);
+      ctx->SetOutput(3, output.wcf_grad);
+      ctx->SetOutput(4, output.wco_grad);
     }
   private:
     bool use_peephole_;
