@@ -26,6 +26,16 @@ xla::XlaOp Sigmoid(xla::XlaBuilder* builder, DataType dtype, const xla::XlaOp& x
   return builder->Add(half, builder->Mul(half, builder->Tanh(builder->Mul(half, x))));
 }
 
+xla::XlaOp SigmoidGrad(xla::XlaBuilder* builder, DataType dtype, const xla::XlaOp& x) {
+  auto one = XlaHelpers::One(builder, dtype);
+  return builder->Mul(x, builder->Sub(one, x));
+}
+
+xla::XlaOp TanhGrad(xla::XlaBuilder* builder, DataType dtype, const xla::XlaOp& x) {
+  auto one = XlaHelpers::One(builder, dtype);
+  return builder->Sub(one, builder->Mul(x, x));
+}
+
 class LSTMBlockCellOp : public XlaOpKernel {
   public:
     explicit LSTMBlockCellOp(OpKernelConstruction* ctx) : XlaOpKernel(ctx) {
@@ -41,7 +51,8 @@ class LSTMBlockCellOp : public XlaOpKernel {
       const TensorShape w_shape = ctx->InputShape(3);
       const TensorShape wci_shape = ctx->InputShape(4);
       const TensorShape wcf_shape = ctx->InputShape(5);
-      const TensorShape b_shape = ctx->InputShape(6);
+      const TensorShape wco_shape = ctx->InputShape(6);
+      const TensorShape b_shape = ctx->InputShape(7);
 
       const int64 batch_size = x_shape.dim_size(0);
       const int64 input_size = x_shape.dim_size(1);
@@ -86,7 +97,8 @@ class LSTMBlockCellOp : public XlaOpKernel {
       xla::XlaOp w = ctx->Input(3);
       xla::XlaOp wci = ctx->Input(4);
       xla::XlaOp wcf = ctx->Input(5);
-      xla::XlaOp b = ctx->Input(6);
+      xla::XlaOp wco = ctx->Input(6);
+      xla::XlaOp b = ctx->Input(7);
 
       // build the operation now
       auto dtype = input_type(0);
@@ -105,13 +117,13 @@ class LSTMBlockCellOp : public XlaOpKernel {
         
       // cell input
       auto ci = ctx->builder()->Tanh(
-          ctx->builder()->Slice(icfo, {0, cell_size}, {batch_size, cell_size}, {1, 1}));
+          ctx->builder()->Slice(icfo, {0, cell_size}, {batch_size, 2 * cell_size}, {1, 1}));
     
       // forget gate
       auto f = Sigmoid(
           ctx->builder(), dtype,
           ctx->builder()->Add(
-            ctx->builder()->Slice(icfo, {0, 2 * cell_size}, {batch_size, cell_size}, {1, 1}),
+            ctx->builder()->Slice(icfo, {0, 2 * cell_size}, {batch_size, 3 * cell_size}, {1, 1}),
             XlaHelpers::FloatLiteral(ctx->builder(), dtype, forget_bias_)));
 
       // cs = ci .* i + f .* cs_prev
@@ -131,7 +143,7 @@ class LSTMBlockCellOp : public XlaOpKernel {
       // output gate
       auto o = Sigmoid(
           ctx->builder(), dtype,
-          ctx->builder()->Slice(icfo, {0, 3 * cell_size}, {batch_size, cell_size}, {1, 1}));
+          ctx->builder()->Slice(icfo, {0, 3 * cell_size}, {batch_size, 4 * cell_size}, {1, 1}));
       
       auto h = ctx->builder()->Mul(o, co);
 
@@ -149,7 +161,139 @@ class LSTMBlockCellOp : public XlaOpKernel {
     bool use_peephole_;
 };
 
-REGISTER_XLA_OP(Name("LSTMBlockCell"), LSTMBlockCellOp)
+REGISTER_XLA_OP(Name("LSTMBlockCell"), LSTMBlockCellOp);
+
+class LSTMBlockCellGradOp : public XlaOpKernel {
+  public:
+    explicit LSTMBlockCellGradOp(OpKernelConstruction* ctx) : XlaOpKernel(ctx) {
+      OP_REQUIRES_OK(ctx, ctx->GetAttr("use_peephole", &use_peephole_));
+    }
+
+    void Compile(XlaOpKernelContext* ctx) override {
+
+      // This macro gets the given input index, and defines
+      // an alias for the operation, and an alias for the shape.
+      #define INPUT_TENSOR(NAME, INDEX) \
+        const TensorShape NAME##_shape = ctx->InputShape(INDEX); \
+        xla::XlaOp NAME = ctx->Input(INDEX)
+    
+      INPUT_TENSOR(x, 0);
+      INPUT_TENSOR(cs_prev, 1);
+      INPUT_TENSOR(h_prev, 2);
+      INPUT_TENSOR(w, 3);
+      INPUT_TENSOR(wci, 4);
+      INPUT_TENSOR(wcf, 5);
+      INPUT_TENSOR(wco, 6);
+      INPUT_TENSOR(b, 7);
+      INPUT_TENSOR(i, 8);
+      INPUT_TENSOR(cs, 9);
+      INPUT_TENSOR(f, 10);
+      INPUT_TENSOR(o, 11);
+      INPUT_TENSOR(ci, 12);
+      INPUT_TENSOR(co, 13);
+      INPUT_TENSOR(cs_grad, 14);
+      INPUT_TENSOR(h_grad, 15);
+
+      #undef INPUT_TENSOR
+
+      const int64 batch_size = x_shape.dim_size(0);
+      const int64 input_size = x_shape.dim_size(1);
+      const int64 cell_size = cs_prev_shape.dim_size(1);
+
+      OP_REQUIRES(ctx, !use_peephole_,
+                  errors::InvalidArgument("Xla LSTMBlockCellGrad only supports use_peephole=False."));
+      
+      // Sanity checks for our input shapes.
+      OP_REQUIRES(ctx, w_shape.dim_size(0) == input_size + cell_size,
+                  errors::InvalidArgument(
+                      "w.dim_size(0) != input_size + cell_size: ",
+                      w_shape.dim_size(0), " vs. ", input_size + cell_size));
+      OP_REQUIRES(ctx, w_shape.dim_size(1) == cell_size * 4,
+                  errors::InvalidArgument(
+                      "w.dim_size(1) != cell_size * 4: ", w_shape.dim_size(1),
+                      " vs. ", cell_size * 4));
+
+      OP_REQUIRES(ctx, b_shape.dim_size(0) == cell_size * 4,
+                  errors::InvalidArgument(
+                      "b.dim_size(0) != cell_size * 4: ", b_shape.dim_size(0),
+                      " vs. ", cell_size * 4));
+
+      // This macro checks that the given input is a matrix batch x cell_size
+      #define CHECK_BATCH_SHAPE(INPUT_NAME) \
+        OP_REQUIRES(ctx, INPUT_NAME##_shape.dim_size(0) == batch_size, \
+                    errors::InvalidArgument( \
+                      #INPUT_NAME ".dim_size(0) != batch_size: ", INPUT_NAME##_shape.dim_size(0), \
+                      " vs. ", batch_size)); \
+        OP_REQUIRES(ctx, INPUT_NAME##_shape.dim_size(1) == cell_size, \
+                    errors::InvalidArgument( \
+                      #INPUT_NAME ".dim_size(1) != cell_size: ", INPUT_NAME##_shape.dim_size(1), \
+                      " vs. ", cell_size))
+    
+      CHECK_BATCH_SHAPE(cs_prev);
+      CHECK_BATCH_SHAPE(h_prev);
+      CHECK_BATCH_SHAPE(i);
+      CHECK_BATCH_SHAPE(cs);
+      CHECK_BATCH_SHAPE(f);
+      CHECK_BATCH_SHAPE(o);
+      CHECK_BATCH_SHAPE(ci);
+      CHECK_BATCH_SHAPE(co);
+      CHECK_BATCH_SHAPE(cs_grad);
+      CHECK_BATCH_SHAPE(h_grad);
+
+      #undef CHECK_BATCH_SHAPE
+
+      // Start computation
+      auto dtype = input_type(0);
+      auto builder = ctx->builder();
+
+      auto one = XlaHelpers::One(builder, dtype);
+
+      // do = sigm'(o) * dh * co
+      xla::XlaOp do_ = builder->Mul(
+          SigmoidGrad(builder, dtype, o),
+          builder->Mul(h_grad, co));
+      
+      // dcs = tanh'(cs) * dh * o + (dcs[t + 1])
+      auto dcs = builder->Add(
+          builder->Mul(
+            TanhGrad(builder, dtype, o),
+            builder->Mul(h_grad, o)),
+          cs_grad);
+      
+      // dci = tanh'(ci) * dcs * i
+      xla::XlaOp dci = builder->Mul(
+          TanhGrad(builder, dtype, ci),
+          builder->Mul(dcs, i));
+    
+      // df[t] = sigm'(f[t]) * dcs[t] * cs[t - 1]
+      xla::XlaOp df = builder->Mul(
+          SigmoidGrad(builder, dtype, f),
+          builder->Mul(dcs, cs_prev));
+
+      // di[t] = sigm'(i[t]) dcs[t] ci[t]     
+      xla::XlaOp di = builder->Mul(
+          SigmoidGrad(builder, dtype, i),
+          builder->Mul(dcs, ci));
+      
+      auto dicfo = builder->ConcatInDim({di, dci, df, do_}, 1);
+      auto cs_prev_grad = builder->Mul(dcs, f);
+
+      auto zero = XlaHelpers::Zero(builder, dtype);
+      auto wci_grad = builder->Broadcast(zero, {cell_size});
+      auto wcf_grad = builder->Broadcast(zero, {cell_size});
+      auto wco_grad = builder->Broadcast(zero, {cell_size});
+
+      ctx->SetOutput(0, cs_prev_grad);
+      ctx->SetOutput(1, dicfo);
+      ctx->SetOutput(2, wci_grad);
+      ctx->SetOutput(3, wcf_grad);
+      ctx->SetOutput(4, wco_grad);
+    }
+  private:
+    bool use_peephole_;
+};
+
+REGISTER_XLA_OP(Name("LSTMBlockCellGrad"), LSTMBlockCellGradOp);
 
 }  // anonymous namespace
 }  // namespace tensorflow
