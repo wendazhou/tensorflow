@@ -67,17 +67,34 @@ LSTMBlockForwardOutput LSTMBlockCellForward(
   xla::XlaOp icfo = builder->Add(builder->Dot(xh, input.w), input.b, {1});
 
   // input gate
-  xla::XlaOp i = Sigmoid(builder, dtype, builder->SliceInDim(icfo, 0, cell_size, 1, 1));
+  xla::XlaOp i;
+
+  if (use_peephole) {
+    xla::XlaOp i_peep = builder->Mul(input.cs_prev, input.wci, {1});
+    i = Sigmoid(builder, dtype, builder->Add(builder->SliceInDim(icfo, 0, cell_size, 1, 1), i_peep));
+  } else {
+    i = Sigmoid(builder, dtype, builder->SliceInDim(icfo, 0, cell_size, 1, 1));
+  }
 
   // cell input
   xla::XlaOp ci = builder->Tanh(builder->SliceInDim(icfo, cell_size, 2 * cell_size, 1, 1));
 
-  // forget gate
-  xla::XlaOp f = Sigmoid(
+  // forget gate (w/ bias)
+  xla::XlaOp f;
+  if (use_peephole) {
+    xla::XlaOp f_peep = builder->Mul(input.cs_prev, input.wcf, {1});
+    f = Sigmoid(builder, dtype, builder->Add(
+      builder->Add(
+        builder->SliceInDim(icfo, 2 * cell_size, 3 * cell_size, 1, 1),
+        XlaHelpers::FloatLiteral(builder, dtype, forget_bias)),
+      f_peep));
+  } else {
+    f = Sigmoid(
       builder, dtype,
       builder->Add(
         builder->SliceInDim(icfo, 2 * cell_size, 3 * cell_size, 1, 1),
         XlaHelpers::FloatLiteral(builder, dtype, forget_bias)));
+  }
 
   // cs = ci .* i + f .* cs_prev
   xla::XlaOp cs = builder->Add(
@@ -91,11 +108,22 @@ LSTMBlockForwardOutput LSTMBlockCellForward(
       XlaHelpers::FloatLiteral(builder, dtype, cell_clip));
   }
 
+  // co = tanh(cs)
   xla::XlaOp co = builder->Tanh(cs);
 
   // output gate
-  xla::XlaOp o = Sigmoid(builder, dtype, builder->SliceInDim(icfo, 3 * cell_size, 4 * cell_size, 1, 1));
+  xla::XlaOp o;
+  if (use_peephole) {
+    xla::XlaOp o_peep = builder->Mul(cs, input.wco, {1});
+    o = Sigmoid(builder, dtype,
+      builder->Add(
+        builder->SliceInDim(icfo, 3 * cell_size, 4 * cell_size, 1, 1),
+        o_peep));
+  } else {
+    o = Sigmoid(builder, dtype, builder->SliceInDim(icfo, 3 * cell_size, 4 * cell_size, 1, 1));
+  }
 
+  // h = o .* co
   xla::XlaOp h = builder->Mul(o, co);
 
   return LSTMBlockForwardOutput{ i, cs, f, o, ci, co, h };
@@ -130,7 +158,7 @@ struct LSTMBlockBackwardOutput {
 
 
 LSTMBlockBackwardOutput LSTMBlockCellBackward(
-    xla::XlaBuilder* builder, DataType dtype,
+    xla::XlaBuilder* builder, XlaContext* context, DataType dtype,
     const LSTMBlockBackwardInput& input, int64 cell_size, bool use_peephole) {
 
   xla::XlaOp one = XlaHelpers::One(builder, dtype);
@@ -165,10 +193,40 @@ LSTMBlockBackwardOutput LSTMBlockCellBackward(
   xla::XlaOp dicfo = builder->ConcatInDim({di, dci, df, do_}, 1);
   xla::XlaOp cs_prev_grad = builder->Mul(dcs, input.f);
 
-  xla::XlaOp zero = XlaHelpers::Zero(builder, dtype);
-  xla::XlaOp wci_grad = builder->Broadcast(zero, {cell_size});
-  xla::XlaOp wcf_grad = builder->Broadcast(zero, {cell_size});
-  xla::XlaOp wco_grad = builder->Broadcast(zero, {cell_size});
+  xla::XlaOp wci_grad;
+  xla::XlaOp wcf_grad;
+  xla::XlaOp wco_grad;
+
+  if (use_peephole) {
+    cs_prev_grad = builder->Add(
+      builder->Add(
+        cs_prev_grad,
+        builder->Mul(di, input.wci, {1})),
+      builder->Mul(df, input.wcf, {1}));
+
+    xla::XlaOp zero = XlaHelpers::Zero(builder, dtype);
+    
+    wci_grad = builder->Reduce(
+      builder->Mul(di, input.cs_prev),
+      zero, context->GetOrCreateAdd(dtype),
+      {0});
+
+    wcf_grad = builder->Reduce(
+      builder->Mul(df, input.cs_prev),
+      zero, context->GetOrCreateAdd(dtype),
+      {0});
+
+    wco_grad = builder->Reduce(
+      builder->Mul(do_, input.cs),
+      zero, context->GetOrCreateAdd(dtype),
+      {0});
+
+  } else {
+    xla::XlaOp zero = XlaHelpers::Zero(builder, dtype);
+    wci_grad = builder->Broadcast(zero, {cell_size});
+    wcf_grad = builder->Broadcast(zero, {cell_size});
+    wco_grad = builder->Broadcast(zero, {cell_size});
+  }
 
   return LSTMBlockBackwardOutput{ cs_prev_grad, dicfo, wci_grad, wcf_grad, wco_grad };
 }
@@ -344,7 +402,7 @@ class LSTMBlockCellGradOp : public XlaOpKernel {
       auto dtype = input_type(0);
 
       auto output = LSTMBlockCellBackward(
-          ctx->builder(), dtype,
+          ctx->builder(), XlaContext::Get(ctx), dtype,
           {x, cs_prev, h_prev, w, wci, wcf, wco, b, i, cs, f, o, ci, co, cs_grad, h_grad},
           cell_size, use_peephole_);
 
