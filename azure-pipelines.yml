@@ -1,0 +1,27 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger: none
+
+jobs:
+- job: build
+  pool:
+    vmImage: 'windows-2019'
+
+  timeoutInMinutes: 0
+  steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '3.6'
+    - script: python -m pip install --upgrade numpy
+      displayName: "Install Numpy"
+    - script: choco install bazel --version 0.28
+      displayName: "Install bazel"
+    - script: bazel build -c opt --disk_cache=c:/bazel/disk_cache //tensorflow/compiler/xla/service:hlo_evaluator
+      displayName: "Build XLA (1 / 3)"
+    - script: bazel build -c opt --disk_cache=c:/bazel/disk_cache //tensorflow/compiler/xla/service:cpu_plugin
+      displayName: "Build XLA (2 / 3)"
+    - script: bazel build -c opt //tensorflow/compiler/xla/python:xla_client
+      displayName: "Build XLA (3 / 3)"
