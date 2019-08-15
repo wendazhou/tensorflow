@@ -1,6 +1,6 @@
 load("//tensorflow/core/platform:default/build_config.bzl", "pyx_library")
 load("//tensorflow/compiler/xla:xla.bzl", "xla_py_test_deps", "xla_python_default_plugins")
-load("//tensorflow:tensorflow.bzl", "pybind_extension")
+load("//tensorflow:tensorflow.bzl", "pybind_extension", "if_not_windows")
 load("//tensorflow:tensorflow.bzl", "py_test", "tf_cc_test")
 
 package(
@@ -53,11 +53,11 @@ cc_library(
     name = "types",
     srcs = ["types.cc"],
     hdrs = ["types.h"],
-    copts = [
+    copts = if_not_windows([
         "-fexceptions",
         "-fno-strict-aliasing",
         "-Wno-c++98-c++11-compat",
-    ],
+    ]),
     features = ["-use_header_modules"],
     deps = [
         "//tensorflow/compiler/xla:literal",
@@ -225,11 +225,11 @@ cc_library(
     name = "python_ref_manager",
     srcs = ["python_ref_manager.cc"],
     hdrs = ["python_ref_manager.h"],
-    copts = [
+    copts = if_not_windows([
         "-fexceptions",
         "-fno-strict-aliasing",
         "-Wno-c++98-c++11-compat",
-    ],
+    ]),
     features = ["-use_header_modules"],
     deps = [
         "@com_google_absl//absl/container:inlined_vector",
