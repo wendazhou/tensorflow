@@ -1,0 +1,13 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger: none
+
+pool:
+  vmImage: 'windows-2019'
+
+steps:
+  - script: choco install bazel --version 0.28.1
+  - script: bazel build -c opt //tensorflow/compiler/xla/python:xla_client
