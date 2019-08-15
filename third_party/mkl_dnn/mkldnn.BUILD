@@ -65,10 +65,13 @@ cc_library(
     ]) + [":mkldnn_version_h"],
     hdrs = glob(["include/*"]),
     copts = [
-        "-fexceptions",
         "-DUSE_MKL",
         "-DUSE_CBLAS",
-    ] + if_mkl_open_source_only([
+    ] + select({
+        # Use -fexceptions flag on non-windows only.
+        "@org_tensorflow//tensorflow:windows": [],
+        "//conditions:default": ["-fexceptions"],
+    }) + if_mkl_open_source_only([
         "-UUSE_MKL",
         "-UUSE_CBLAS",
     ]) + if_mkl_v1_open_source_only([
@@ -122,9 +125,12 @@ cc_library(
     ]) + [":mkldnn_version_h"],
     hdrs = glob(["include/*"]),
     copts = [
-        "-fexceptions",
         "-DMKLDNN_THR=MKLDNN_THR_SEQ",  # Disables threading.
-    ],
+    ] + select({
+        # Use -fexceptions flag on non-windows only.
+        "@org_tensorflow//tensorflow:windows": [],
+        "//conditions:default": ["-fexceptions"],
+    }) ,
     includes = [
         "include",
         "src",

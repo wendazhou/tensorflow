@@ -203,12 +203,12 @@ def tf_repositories(path_prefix = "", tf_repo_name = ""):
 
     tf_http_archive(
         name = "com_googlesource_code_re2",
-        sha256 = "d070e2ffc5476c496a6a872a6f246bfddce8e7797d6ba605a7c8d72866743bf9",
-        strip_prefix = "re2-506cfa4bffd060c06ec338ce50ea3468daa6c814",
+        sha256 = "31edd89ddeabf9d43a7c732c777a8b4a1cb048df34942b98fa62f22928399b2f",
+        strip_prefix = "re2-04b6a296e520b149a72f9c78b09273045b6574ed",
         system_build_file = clean_dep("//third_party/systemlibs:re2.BUILD"),
         urls = [
-            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/google/re2/archive/506cfa4bffd060c06ec338ce50ea3468daa6c814.tar.gz",
-            "https://github.com/google/re2/archive/506cfa4bffd060c06ec338ce50ea3468daa6c814.tar.gz",
+            "https://storage.googleapis.com/mirror.tensorflow.org/github.com/google/re2/archive/04b6a296e520b149a72f9c78b09273045b6574ed.tar.gz",
+            "https://github.com/google/re2/archive/04b6a296e520b149a72f9c78b09273045b6574ed.tar.gz",
         ],
     )
 
