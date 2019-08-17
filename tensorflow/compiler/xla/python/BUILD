@@ -78,11 +78,11 @@ cc_library(
     name = "xrt",
     srcs = ["xrt.cc"],
     hdrs = ["xrt.h"],
-    copts = [
+    copts = if_not_windows([
         "-fexceptions",
         "-fno-strict-aliasing",
         "-Wno-c++98-c++11-compat",
-    ],
+    ]),
     features = ["-use_header_modules"],
     deps = [
         ":types",
@@ -244,11 +244,11 @@ pybind_extension(
     srcs = [
         "xla.cc",
     ],
-    copts = [
+    copts = if_not_windows([
         "-fexceptions",
         "-fno-strict-aliasing",
         "-Wno-c++98-c++11-compat",
-    ],
+    ]),
     features = ["-use_header_modules"],
     module_name = "xla_extension",
     deps = [

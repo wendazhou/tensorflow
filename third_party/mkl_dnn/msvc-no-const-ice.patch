@@ -1,0 +1,67 @@
+diff --git a/src/cpu/simple_reorder.hpp b/src/cpu/simple_reorder.hpp
+index 44078621..52cc614d 100644
+--- a/src/cpu/simple_reorder.hpp
++++ b/src/cpu/simple_reorder.hpp
+@@ -116,7 +116,7 @@ typename utils::enable_if<fmt_i == any && (false
+     static bool is_applicable(const memory_desc_wrapper &input_d,
+             const memory_desc_wrapper &output_d, const primitive_attr_t *attr)
+     {
+-        const size_t D_mask = utils::array_product(input_d.dims(),
++        size_t D_mask = utils::array_product(input_d.dims(),
+                                 math::ilog2q(attr->output_scales_.mask_ + 1));
+         const int oc = (input_d.dims()[fmt_o == hwigo_s8s8 + 0]);
+         const int g = (fmt_o == hwigo_s8s8) ? (input_d.dims()[0]) : 1;
+@@ -146,7 +146,7 @@ typename utils::enable_if<fmt_i == any && (false
+         const int W = dims[w_groups + 3];
+ 
+         const float *scales = pd->attr()->output_scales_.scales_;
+-        const size_t D_mask = utils::array_product(input_d.dims(),
++         size_t D_mask = utils::array_product(input_d.dims(),
+                 math::ilog2q(pd->attr()->output_scales_.mask_ + 1));
+ 
+         float adj_scale = (mayiuse(avx512_core_vnni)) ? 1.0f : (1.0f / 2.0f);
+@@ -184,7 +184,7 @@ struct simple_reorder_impl<SIMPLE_REORDER_TEMPL_CALL,
+     static bool is_applicable(const memory_desc_wrapper &input_d,
+             const memory_desc_wrapper &output_d, const primitive_attr_t *attr)
+     {
+-        const size_t D_mask = utils::array_product(input_d.dims(),
++         size_t D_mask = utils::array_product(input_d.dims(),
+                                 math::ilog2q(attr->output_scales_.mask_ + 1));
+         static constexpr bool w_groups
+                 = format_traits<fmt_i>::data_kind == dk::gwei;
+@@ -226,7 +226,7 @@ struct simple_reorder_impl<SIMPLE_REORDER_TEMPL_CALL,
+         const int W = dims[w_groups + 3 - is_1d];
+ 
+         const float *scales = pd->attr()->output_scales_.scales_;
+-        const size_t D_mask = utils::array_product(input_d.dims(),
++         size_t D_mask = utils::array_product(input_d.dims(),
+                             math::ilog2q(pd->attr()->output_scales_.mask_ + 1));
+ 
+         float adj_scale = (mayiuse(avx512_core_vnni)) ? 1.f : (1.f / 2.f);
+@@ -586,7 +586,7 @@ struct simple_reorder_impl<SIMPLE_REORDER_TEMPL_CALL,
+ 
+     static bool is_applicable(const memory_desc_wrapper &input_d,
+             const memory_desc_wrapper &output_d, const primitive_attr_t *attr) {
+-        const size_t D_mask = utils::array_product(input_d.dims(),
++         size_t D_mask = utils::array_product(input_d.dims(),
+                             math::ilog2q(attr->output_scales_.mask_ + 1));
+         const int oc = input_d.dims()[1];
+         const int g = input_d.dims()[0];
+@@ -619,7 +619,7 @@ struct simple_reorder_impl<SIMPLE_REORDER_TEMPL_CALL,
+         const int H = is_1d ? 1 : dims[3];
+         const int W = dims[4 - is_1d];
+ 
+-        const size_t D_mask = utils::array_product(input_d.dims(),
++         size_t D_mask = utils::array_product(input_d.dims(),
+                             math::ilog2q(pd->attr()->output_scales_.mask_ + 1));
+         const float *scales = pd->attr()->output_scales_.scales_;
+         float adj_scale = (mayiuse(avx512_core_vnni)) ? 1.f : (1.f / 2.f);
+@@ -1321,7 +1321,7 @@ struct simple_reorder_impl<SIMPLE_REORDER_TEMPL_CALL,
+         for (; smask > 0 && smask & 0x1; smask >>= 1) ++ndims_mask;
+         assert(smask == 0);
+ 
+-        const ptrdiff_t D_start
++         ptrdiff_t D_start
+             = utils::array_product(input_d.dims(), ndims_start);
+         const ptrdiff_t D_mask
+             = utils::array_product(input_d.dims() + ndims_start, ndims_mask);

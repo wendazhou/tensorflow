@@ -2541,7 +2541,7 @@ template <typename LiteralNativeT, typename ParsedElemT>
 bool HloParser::CheckParsedValueIsInRange(LocTy loc, ParsedElemT value) {
   PrimitiveType literal_ty =
       primitive_util::NativeToPrimitiveType<LiteralNativeT>();
-  if (std::isnan(value) ||
+  if (std::isnan(static_cast<typename std::conditional<std::is_integral<ParsedElemT>::value, double, ParsedElemT>::type>(value)) ||
       (std::numeric_limits<ParsedElemT>::has_infinity &&
        (std::numeric_limits<ParsedElemT>::infinity() == value ||
         -std::numeric_limits<ParsedElemT>::infinity() == value))) {

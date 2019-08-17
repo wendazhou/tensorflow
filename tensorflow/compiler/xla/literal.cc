@@ -1298,7 +1298,7 @@ Literal ConvertBetweenNativeTypesWithConverter(const LiteralBase& src_literal,
   Literal result_literal(ShapeUtil::ChangeElementType(
       src_literal.shape(),
       primitive_util::NativeToPrimitiveType<NativeDestT>()));
-  auto src_data = src_literal.data<NativeSrcT>();
+  auto src_data = src_literal.template data<NativeSrcT>();
   auto dest_data = result_literal.template data<NativeDestT>();
   int64 num_elements = src_literal.element_count();
 

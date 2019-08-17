@@ -470,7 +470,7 @@ Status DynamicDimensionInferenceVisitor::HandleReshape(HloInstruction* hlo) {
                     dynamic_size->shape(), HloOpcode::kMultiply, dynamic_size,
                     multiplier_hlo));
             parent_->SetDynamicSize(reshape, {}, 0, new_dynamic_size,
-                                    {.stride = 1, .multiple_of = multiplier});
+                                    {/*.stride = */1, /*.multiple_of = */multiplier});
             return Status::OK();
           } else if (output_most_major < input_most_major) {
             // Output dimension is decomposed from input most major dimension.
@@ -647,7 +647,7 @@ Status DynamicDimensionInferenceVisitor::HandleReshape(HloInstruction* hlo) {
 
             parent_->SetDynamicSize(reshape, {}, dynamic_dimension,
                                     new_dynamic_size,
-                                    {.stride = 1, .multiple_of = 1});
+                                    {/*.stride = */1, /*.multiple_of = */1});
             return Status::OK();
           }
         }
@@ -996,7 +996,7 @@ Status DynamicDimensionInferenceVisitor::HandleParameter(HloInstruction* hlo) {
         parent_->SetDynamicSize(target_parameter,
                                 dynamic_dimension.parameter_index,
                                 dynamic_dimension.dimension, dynamic_size,
-                                {.stride = 1, .multiple_of = 1});
+                                {/*.stride = */1, /*.multiple_of = */1});
         return Status::OK();
       });
 }

@@ -24,3 +24,6 @@ build --define=override_eigen_strong_inline=true
 --incompatible_new_actions_api=false
 --incompatible_no_support_tools_in_action_inputs=false
 --incompatible_use_python_toolchains=false
+
+build --copt="/std:c++latest"
+build --copt="/permissive-"

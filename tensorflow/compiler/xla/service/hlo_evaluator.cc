@@ -53,6 +53,11 @@ limitations under the License.
 #include "tensorflow/core/platform/protobuf.h"
 #include "tensorflow/core/platform/types.h"
 
+#ifndef M_PI
+// M_PI is not defined by the standard, define it here just in case.
+#define M_PI 3.141592653589793
+#endif
+
 namespace xla {
 
 namespace {

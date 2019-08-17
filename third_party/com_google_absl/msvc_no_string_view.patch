@@ -1,0 +1,28 @@
+diff --git a/absl/strings/string_view.cc b/absl/strings/string_view.cc
+index cb79d5d..b8c0c6d 100644
+--- a/absl/strings/string_view.cc
++++ b/absl/strings/string_view.cc
+@@ -14,7 +14,7 @@
+ 
+ #include "absl/strings/string_view.h"
+ 
+-#ifndef ABSL_HAVE_STD_STRING_VIEW
++#if !defined(ABSL_HAVE_STD_STRING_VIEW) || defined(_MSC_VER)
+ 
+ #include <algorithm>
+ #include <climits>
+diff --git a/absl/strings/string_view.h b/absl/strings/string_view.h
+index f8b2001..5e5d470 100644
+--- a/absl/strings/string_view.h
++++ b/absl/strings/string_view.h
+@@ -30,7 +30,9 @@
+ #include <algorithm>
+ #include "absl/base/config.h"
+ 
+-#ifdef ABSL_HAVE_STD_STRING_VIEW
++// MSVC string_view uses an opaque const_iterator type which
++// is incompatible with re2, so we insist on abseil providing one.
++#if defined(ABSL_HAVE_STD_STRING_VIEW) && !defined(_MSC_VER)
+ 
+ #include <string_view>  // IWYU pragma: export
+ 
