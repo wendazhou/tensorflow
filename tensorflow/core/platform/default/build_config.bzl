@@ -82,9 +82,11 @@ def pyx_library(
         )
 
     shared_objects = []
+    pyd_objects = []
     for src in pyx_srcs:
         stem = src.split(".")[0]
         shared_object_name = stem + ".so"
+        pyd_object_name = stem + ".pyd"
         native.cc_binary(
             name = shared_object_name,
             srcs = [stem + ".cpp"],
@@ -92,7 +94,17 @@ def pyx_library(
             linkshared = 1,
             testonly = testonly,
         )
+
+        native.genrule(
+            name = name + "_pyd_copy",
+            srcs = [shared_object_name],
+            outs = [pyd_object_name],
+            cmd = "cp $< $@",
+            output_to_bindir = True,
+            testonly = testonly,
+        )
         shared_objects.append(shared_object_name)
+        pyd_objects.append(pyd_object_name)
 
     # Now create a py_library with these shared objects as data.
     native.py_library(
@@ -100,7 +112,10 @@ def pyx_library(
         srcs = py_srcs,
         deps = py_deps,
         srcs_version = "PY2AND3",
-        data = shared_objects,
+        data = select({
+            "@org_tensorflow//tensorflow:windows": pyd_objects,
+            "//conditions:default": shared_objects,
+        }),
         testonly = testonly,
         **kwargs
     )
