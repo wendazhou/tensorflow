@@ -17,11 +17,16 @@ jobs:
         versionSpec: '3.6'
     - script: python -m pip install --upgrade numpy
       displayName: "Install Numpy"
-    - script: choco install bazel --version 0.28
+    - script: choco install bazel --version 0.28 --no-progress
       displayName: "Install bazel"
-    - script: bazel build -c opt --disk_cache=c:/bazel/disk_cache //tensorflow/compiler/xla/service:hlo_evaluator
+    - task: CacheBeta@0
+      inputs:
+          key: $(Agent.OS)
+          path: $(Pipeline.Workspace)/bazel_cache/
+      displayName: "Bazel build cache"
+    - script: bazel build -c opt --disk_cache=$(Pipeline.Workspace)/bazel_cache/ //tensorflow/compiler/xla/service:hlo_evaluator
       displayName: "Build XLA (1 / 3)"
-    - script: bazel build -c opt --disk_cache=c:/bazel/disk_cache //tensorflow/compiler/xla/service:cpu_plugin
+    - script: bazel build -c opt --disk_cache=$(Pipeline.Workspace)/bazel_cache/ //tensorflow/compiler/xla/service:cpu_plugin
       displayName: "Build XLA (2 / 3)"
-    - script: bazel build -c opt //tensorflow/compiler/xla/python:xla_client
+    - script: bazel build -c opt --disk_cache=$(Pipeline.Workspace)/bazel_cache/ //tensorflow/compiler/xla/python:xla_client
       displayName: "Build XLA (3 / 3)"
